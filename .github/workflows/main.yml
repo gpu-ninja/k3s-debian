@@ -40,14 +40,23 @@ jobs:
       env:
         UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
       run: |
-        set -o pipefail
+        upload_file() {
+          curl --http1.1 -fSs -H "Authorization: Bearer ${UPLOAD_TOKEN}" -F "file=@$1" https://download.koopt.sh/blob
+        }
+
         echo '# K3S Debian ${{ github.ref_name }}' > release.md
+
         echo '## Base Image' >> release.md
-        echo "* [k3s-debian-amd64.tar.zst]($(curl --http1.1 -fSs -H "Authorization: Bearer ${UPLOAD_TOKEN}" -F 'file=@dist/k3s-debian-amd64.tar.zst' https://download.koopt.sh/blob))" >> release.md
-        echo -e "* [k3s-debian-arm64.tar.zst]($(curl --http1.1 -fSs -H "Authorization: Bearer ${UPLOAD_TOKEN}" -F 'file=@dist/k3s-debian-arm64.tar.zst' https://download.koopt.sh/blob))\n" >> release.md
+        URL=$(upload_file dist/k3s-debian-amd64.tar.zst)
+        echo "* [k3s-debian-amd64.tar.zst](${URL})" >> release.md
+        URL=$(upload_file dist/k3s-debian-arm64.tar.zst)
+        echo -e "* [k3s-debian-arm64.tar.zst](${URL})\n" >> release.md
+
         echo '## Images Archive' >> release.md
-        echo "* [k3s-images-amd64.tar.zst]($(curl --http1.1 -fSs -H "Authorization: Bearer ${UPLOAD_TOKEN}" -F 'file=@dist/k3s-images-amd64.tar.zst' https://download.koopt.sh/blob))" >> release.md
-        echo -e "* [k3s-images-arm64.tar.zst]($(curl --http1.1 -fSs -H "Authorization: Bearer ${UPLOAD_TOKEN}" -F 'file=@dist/k3s-images-arm64.tar.zst' https://download.koopt.sh/blob))\n" >> release.md
+        URL=$(upload_file dist/k3s-images-amd64.tar.zst)
+        echo "* [k3s-images-amd64.tar.zst](${URL})" >> release.md
+        URL=$(upload_file dist/k3s-images-arm64.tar.zst)
+        echo "* [k3s-images-arm64.tar.zst](${URL})" >> release.md
         
     - name: Release
       uses: softprops/action-gh-release@v1
