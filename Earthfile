@@ -6,10 +6,57 @@ docker-all:
   BUILD --platform=linux/amd64 --platform=linux/arm64 +docker
 
 docker:
-  ARG TARGETPLATFORM
-  ARG KUBE_VERSION
-  FROM DOCKERFILE --platform=$TARGETPLATFORM --build-arg KUBE_VERSION=${KUBE_VERSION} -f +docker-context/Dockerfile +docker-context/*
-  SAVE IMAGE --push ghcr.io/gpu-ninja/k3s-debian:${KUBE_VERSION}
+  FROM debian:bookworm-slim
+  ARG TARGETARCH
+  RUN apt update \
+    && apt install -y \
+      curl gnupg2 \
+      # Required for k3s.
+      ca-certificates busybox \
+      # Rook/Ceph.
+      udev lvm2
+
+  # NVIDIA GPU support.
+  RUN curl -fsL https://nvidia.github.io/nvidia-container-runtime/gpgkey | gpg --dearmor -o /etc/apt/trusted.gpg.d/nvidia.gpg \
+    && curl -fL -o /etc/apt/sources.list.d/nvidia-container-runtime.list https://nvidia.github.io/nvidia-container-runtime/ubuntu22.04/nvidia-container-runtime.list \
+    && apt update \
+    && apt install -y \
+      nvidia-container-toolkit-base
+
+  # K3D requires busybox to be the default shell.
+  RUN ln -sf /bin/busybox /bin/sh
+
+  ARG VERSION
+  RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+      curl -L -o /bin/k3s https://github.com/k3s-io/k3s/releases/download/${VERSION}%2Bk3s1/k3s; \
+    else \
+      curl -L -o /bin/k3s https://github.com/k3s-io/k3s/releases/download/${VERSION}%2Bk3s1/k3s-${TARGETARCH}; \
+    fi && chmod +x /bin/k3s
+
+  RUN ln -s /bin/k3s /bin/containerd \
+    && ln -s /bin/k3s /bin/crictl \
+    && ln -s /bin/k3s /bin/ctr \
+    && ln -s /bin/k3s /bin/k3s-agent \
+    && ln -s /bin/k3s /bin/k3s-certificate \
+    && ln -s /bin/k3s /bin/k3s-completion \
+    && ln -s /bin/k3s /bin/k3s-etcd-snapshot \
+    && ln -s /bin/k3s /bin/k3s-secrets-encrypt \
+    && ln -s /bin/k3s /bin/k3s-server \
+    && ln -s /bin/k3s /bin/k3s-token \
+    && ln -s /bin/k3s /bin/kubectl
+
+  # Enable CDI.
+  COPY config.toml.tmpl /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+
+  VOLUME /var/lib/kubelet
+  VOLUME /var/lib/rancher/k3s
+  VOLUME /var/lib/cni
+  VOLUME /var/log
+
+  ENV CRI_CONFIG_FILE="/var/lib/rancher/k3s/agent/etc/crictl.yaml"
+  ENTRYPOINT ["/bin/k3s"]
+  CMD ["agent"]
+  SAVE IMAGE --push ghcr.io/gpu-ninja/k3s-debian:${VERSION}
   SAVE IMAGE --push ghcr.io/gpu-ninja/k3s-debian:latest
 
 docker-context:
@@ -30,12 +77,12 @@ save-images-all:
 
 save-images:
   FROM +tools
-  ARG KUBE_VERSION
-  RUN curl -fsSLO https://github.com/k3s-io/k3s/releases/download/${KUBE_VERSION}%2Bk3s1/k3s-images.txt
+  ARG VERSION
+  RUN curl -fsSLO https://github.com/k3s-io/k3s/releases/download/${VERSION}%2Bk3s1/k3s-images.txt
   COPY images.yaml.tmpl .
   ARG IMGARCH=amd64
   RUN mkdir -p /dist
-  RUN yq e ".spec.images = [\"ghcr.io/gpu-ninja/k3s-debian:${KUBE_VERSION}\"]" images.yaml.tmpl > images.yaml \
+  RUN yq e ".spec.images = [\"ghcr.io/gpu-ninja/k3s-debian:${VERSION}\"]" images.yaml.tmpl > images.yaml \
     && airgapify --no-progress --platform=linux/${IMGARCH} -f images.yaml -o /dist/k3s-debian-${IMGARCH}.tar.zst
   RUN yq e '.spec.images = (load_str("k3s-images.txt") | trim | split("\n"))' images.yaml.tmpl > images.yaml \
     && airgapify --no-progress --platform=linux/${IMGARCH} -f images.yaml -o /dist/k3s-images-${IMGARCH}.tar.zst

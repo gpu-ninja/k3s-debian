@@ -30,10 +30,10 @@ jobs:
 
     - name: Build and push Docker image
       shell: bash
-      run: earthly --push +docker-all --KUBE_VERSION=${{ github.ref_name }}
+      run: earthly --push +docker-all --VERSION=${{ github.ref_name }}
 
     - name: Save Images
-      run: earthly +save-images-all --KUBE_VERSION=${{ github.ref_name }}
+      run: earthly +save-images-all --VERSION=${{ github.ref_name }}
         
     - name: Release
       uses: softprops/action-gh-release@v1
